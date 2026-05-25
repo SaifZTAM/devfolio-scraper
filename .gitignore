@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Next.js build output
+/.next/
+/out/
+
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug logs
+*.log
+dev.log
+
+# TypeScript build info
+*.tsbuildinfo
+next-env.d.ts
+
+# Misc
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Playwright browsers (large binaries)
+/playwright/.cache/
+
+# Scraper data and local databases
+data/
+*.log
