@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Play, RefreshCw, AlertCircle, CheckCircle2, Loader2, Settings2, ChevronDown, Sparkles, Zap } from 'lucide-react'
+import { Play, RefreshCw, AlertCircle, CheckCircle2, Loader2, Sparkles, Zap } from 'lucide-react'
 import type { ScrapeStatus } from '@/lib/types'
 
 interface Props { onComplete: () => void }
@@ -18,7 +18,6 @@ const PHASE_LABELS: Record<string, string> = {
 
 export default function ScrapePanel({ onComplete }: Props) {
   const [status, setStatus] = useState<ScrapeStatus | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
   const [maxHackathons, setMaxHackathons] = useState(500)
   const [maxTopProjects, setMaxTopProjects] = useState(0)
   const [enrichProjects, setEnrichProjects] = useState(false)
@@ -94,70 +93,56 @@ export default function ScrapePanel({ onComplete }: Props) {
             <div className="text-[10px] mt-0.5 font-medium" style={{ color: 'var(--accent)' }}>⚡ Instant · Zero browser needed</div>
           </div>
         </div>
-        <button
-          onClick={() => setShowSettings(s => !s)}
-          className="flex items-center gap-1 text-xs transition-colors px-2.5 py-1.5 rounded-lg"
-          style={{
-            color: showSettings ? 'var(--accent)' : 'var(--text-faint)',
-            background: showSettings ? 'var(--accent-light)' : 'transparent',
-            border: showSettings ? '1px solid var(--accent-border)' : '1px solid transparent',
-          }}
-        >
-          <Settings2 size={12} />
-          <ChevronDown size={11} style={{ transform: showSettings ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-        </button>
       </div>
 
       {/* Settings */}
-      {showSettings && (
-        <div
-          className="px-4 py-3 space-y-3"
-          style={{ borderBottom: '1px solid var(--border-2)', background: 'var(--surface-2)' }}
-        >
-          <div className="grid grid-cols-2 gap-2.5">
-            <div>
-              <label className="section-label block mb-1.5">Hackathons</label>
-              <input
-                type="number"
-                min={1} max={2000}
-                value={maxHackathons}
-                onChange={e => setMaxHackathons(Number(e.target.value))}
-                className="input-field text-sm"
-                style={{ padding: '7px 10px' }}
-              />
-              <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-disabled)' }}>Set 1700+ for all years (2020–2026)</p>
-            </div>
-            <div>
-              <label className="section-label block mb-1.5">Top projects</label>
-              <input
-                type="number"
-                min={10} max={2000} step={50}
-                value={maxTopProjects}
-                onChange={e => setMaxTopProjects(Number(e.target.value))}
-                className="input-field text-sm"
-                style={{ padding: '7px 10px' }}
-              />
-            </div>
+      <div
+        className="px-4 py-3 space-y-3"
+        style={{ borderBottom: '1px solid var(--border-2)', background: 'var(--surface-2)' }}
+      >
+        <div className="grid grid-cols-2 gap-2.5">
+          <div>
+            <label className="section-label block mb-1.5">Hackathons</label>
+            <input
+              type="number"
+              min={1} max={2000}
+              value={maxHackathons}
+              onChange={e => setMaxHackathons(Number(e.target.value))}
+              className="input-field text-sm"
+              style={{ padding: '7px 10px' }}
+            />
+            <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-disabled)' }}>Set 1700+ for all years (2020–2026)</p>
           </div>
-
-          {/* Toggle */}
-          <div
-            className="flex items-center justify-between cursor-pointer"
-            onClick={() => setEnrichProjects(e => !e)}
-          >
-            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Enrich projects (likes, tech, links)</span>
-            <div
-              className="w-9 h-5 rounded-full flex-shrink-0 relative transition-colors"
-              style={{ background: enrichProjects ? '#2A5C34' : '#D8CAAF' }}
-            >
-              <div
-                className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all"
-                style={{ left: enrichProjects ? '18px' : '2px' }}
-              />
-            </div>
+          <div>
+            <label className="section-label block mb-1.5">Top projects</label>
+            <input
+              type="number"
+              min={10} max={2000} step={50}
+              value={maxTopProjects}
+              onChange={e => setMaxTopProjects(Number(e.target.value))}
+              className="input-field text-sm"
+              style={{ padding: '7px 10px' }}
+            />
           </div>
         </div>
-      )}
+
+        {/* Toggle */}
+        <div
+          className="flex items-center justify-between cursor-pointer"
+          onClick={() => setEnrichProjects(e => !e)}
+        >
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Enrich projects (likes, tech, links)</span>
+          <div
+            className="w-9 h-5 rounded-full flex-shrink-0 relative transition-colors"
+            style={{ background: enrichProjects ? '#2A5C34' : '#D8CAAF' }}
+          >
+            <div
+              className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all"
+              style={{ left: enrichProjects ? '18px' : '2px' }}
+            />
+          </div>
+        </div>
+      </div>
 
       {/* Status */}
       {status && status.phase && (
