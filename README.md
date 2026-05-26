@@ -6,6 +6,14 @@ A Next.js web app that scrapes hackathon projects from Devfolio, stores them loc
 
 ---
 
+## Live Demo
+
+🔗 **[https://devfolio-scraper.onrender.com](https://devfolio-scraper.onrender.com)**
+
+> ⚠️ **Hosted on Render free tier** — if the site hasn't been visited in a while, it may take **30–90 seconds to wake up** on first load. Just wait for it to load, it will come back up.
+
+---
+
 ## Features
 
 - **Scrape** — fetches projects and hackathon metadata from the Devfolio REST API (no browser automation needed)
