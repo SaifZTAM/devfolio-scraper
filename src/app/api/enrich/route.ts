@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getProjectsMap, upsertProjectsBatch, flushToDisk, logScrape } from '@/lib/db'
+import { getProjectsMap, upsertProjectsBatch, flushToDisk, logScrape, ensureDbLoaded } from '@/lib/db'
 import { getScrapeStatus } from '@/lib/scraper'
 
 let _enrichRunning = false
@@ -63,6 +63,7 @@ export async function POST() {
   // Run in background — parallel batches for speed
   ;(async () => {
     try {
+      await ensureDbLoaded()
       const projects = Array.from(getProjectsMap().values())
       const toEnrich = projects.filter(p => !p.githubUrl && !p.imageUrl && !p.description)
       logScrape('enrich', `Enriching ${toEnrich.length} projects (parallel x8)`)
@@ -104,6 +105,7 @@ export async function POST() {
 }
 
 export async function GET() {
+  await ensureDbLoaded()
   const projects = Array.from(getProjectsMap().values())
   const total = projects.length
   const enriched = projects.filter(p => p.imageUrl || p.githubUrl || p.description).length

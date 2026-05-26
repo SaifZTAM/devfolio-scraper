@@ -4,8 +4,6 @@
  */
 import { upsertHackathon, upsertProjectsBatch, logScrape, clearData, flushToDisk } from './db'
 import type { Hackathon, Project, ScrapeStatus } from './types'
-import fs from 'fs'
-import path from 'path'
 
 const API = 'https://api.devfolio.co/api'
 const HEADERS = {
@@ -13,34 +11,17 @@ const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
 }
 
-// ── Persistent status (survives hot-reload) ───────────────────────────────────
+// ── In-memory status ──────────────────────────────────────────────────────────
 
-const STATUS_FILE = path.join(process.cwd(), 'data', 'status.json')
+let _status: ScrapeStatus = { running: false, phase: '', progress: 0, total: 0, message: '', startedAt: null, completedAt: null, error: null }
 
-function readStatus(): ScrapeStatus {
-  try {
-    if (fs.existsSync(STATUS_FILE)) {
-      return JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8')) as ScrapeStatus
-    }
-  } catch {}
-  return { running: false, phase: '', progress: 0, total: 0, message: '', startedAt: null, completedAt: null, error: null }
-}
-
-function writeStatus(s: ScrapeStatus) {
-  try {
-    const dir = path.dirname(STATUS_FILE)
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(STATUS_FILE, JSON.stringify(s), 'utf-8')
-  } catch {}
-}
-
-export function getScrapeStatus(): ScrapeStatus { return readStatus() }
+export function getScrapeStatus(): ScrapeStatus { return _status }
 
 let _stopRequested = false
 export function setStopRequested(v: boolean) { _stopRequested = v }
 
 function setStatus(update: Partial<ScrapeStatus>) {
-  writeStatus({ ...readStatus(), ...update })
+  _status = { ..._status, ...update }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -376,7 +357,7 @@ export async function runScraper(options: {
     message: 'Clearing old data...', startedAt: new Date().toISOString(),
     completedAt: null, error: null,
   })
-  clearData()
+  await clearData()
 
   try {
     // Phase 1: Hackathons

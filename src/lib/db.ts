@@ -1,145 +1,114 @@
 /**
- * JSON file-based store — no native deps, works on any OS.
- * In-memory Map as primary store; async disk writes (never blocks event loop).
+ * Supabase-backed store — projects and hackathons persisted in PostgreSQL.
+ * In-memory Maps as primary write buffer; async Supabase upserts for persistence.
  */
-import fs from 'fs'
-import path from 'path'
+import { createClient } from '@supabase/supabase-js'
 import type { Project, Hackathon } from './types'
 
-const DATA_DIR = path.join(process.cwd(), 'data')
-const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json')
-const HACKATHONS_FILE = path.join(DATA_DIR, 'hackathons.json')
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
-}
-
-// ─── In-memory caches with TTL ───────────────────────────────────────────────
-// TTL-based: re-reads disk every 2s so hot-reload never serves stale data.
-// During scrape, writes go to both the write-cache AND disk (debounced).
-
-let _projects: Map<string, Project> | null = null
-let _projectsLoadedAt = 0
-let _hackathons: Map<string, Hackathon> | null = null
-let _hackathonsLoadedAt = 0
-const CACHE_TTL_MS = 2000 // re-read disk if cache older than 2s
-
+// ─── In-memory caches ─────────────────────────────────────────────────────────
+let _projects: Map<string, Project> = new Map()
+let _hackathons: Map<string, Hackathon> = new Map()
+let _loaded = false
+let _loadPromise: Promise<void> | null = null
 let _projectsDirty = false
 let _hackathonsDirty = false
 let _writeTimer: ReturnType<typeof setTimeout> | null = null
 
-export function getProjectsMap(): Map<string, Project> {
-  const now = Date.now()
-  if (_projects && now - _projectsLoadedAt < CACHE_TTL_MS) return _projects
-  try {
-    if (fs.existsSync(PROJECTS_FILE)) {
-      const arr = JSON.parse(fs.readFileSync(PROJECTS_FILE, 'utf-8')) as Project[]
-      _projects = new Map(arr.map(p => [p.id, p]))
-    } else {
-      _projects = new Map()
-    }
-  } catch {
-    if (!_projects) _projects = new Map()
-  }
-  _projectsLoadedAt = now
-  return _projects
+async function loadFromDb() {
+  const [{ data: projects }, { data: hackathons }] = await Promise.all([
+    supabase.from('projects').select('id, data'),
+    supabase.from('hackathons').select('id, data'),
+  ])
+  _projects = new Map((projects || []).map((r: { id: string; data: Project }) => [r.id, r.data]))
+  _hackathons = new Map((hackathons || []).map((r: { id: string; data: Hackathon }) => [r.id, r.data]))
+  _loaded = true
 }
 
-function getHackathonsMap(): Map<string, Hackathon> {
-  const now = Date.now()
-  if (_hackathons && now - _hackathonsLoadedAt < CACHE_TTL_MS) return _hackathons
-  try {
-    if (fs.existsSync(HACKATHONS_FILE)) {
-      const arr = JSON.parse(fs.readFileSync(HACKATHONS_FILE, 'utf-8')) as Hackathon[]
-      _hackathons = new Map(arr.map(h => [h.id, h]))
-    } else {
-      _hackathons = new Map()
-    }
-  } catch {
-    if (!_hackathons) _hackathons = new Map()
-  }
-  _hackathonsLoadedAt = now
-  return _hackathons
+export async function ensureDbLoaded() {
+  if (_loaded) return
+  if (!_loadPromise) _loadPromise = loadFromDb().finally(() => { _loadPromise = null })
+  await _loadPromise
 }
 
-// Debounced async flush — writes to disk without blocking event loop
+export function initDb() {
+  // Kick off background load — non-blocking
+  if (!_loaded && !_loadPromise) {
+    _loadPromise = loadFromDb().finally(() => { _loadPromise = null })
+  }
+}
+
+// ─── Supabase flush ───────────────────────────────────────────────────────────
+
 function scheduleDiskFlush() {
   if (_writeTimer) return
-  _writeTimer = setTimeout(async () => { // eslint-disable-line @typescript-eslint/no-misused-promises
+  _writeTimer = setTimeout(() => {
     _writeTimer = null
-    ensureDir()
-    if (_projectsDirty && _projects) {
-      _projectsDirty = false
-      const json = JSON.stringify(Array.from(_projects.values()), null, 2)
-      await fs.promises.writeFile(PROJECTS_FILE, json, 'utf-8').catch(() => {})
-    }
-    if (_hackathonsDirty && _hackathons) {
-      _hackathonsDirty = false
-      const json = JSON.stringify(Array.from(_hackathons.values()), null, 2)
-      await fs.promises.writeFile(HACKATHONS_FILE, json, 'utf-8').catch(() => {})
-    }
+    void flushAsync()
   }, 100)
 }
 
-// Immediate synchronous flush (used at end of scrape / clear)
-function flushSync() {
-  ensureDir()
-  if (_projects) fs.writeFileSync(PROJECTS_FILE, JSON.stringify(Array.from(_projects.values()), null, 2), 'utf-8')
-  if (_hackathons) fs.writeFileSync(HACKATHONS_FILE, JSON.stringify(Array.from(_hackathons.values()), null, 2), 'utf-8')
-  _projectsDirty = false
-  _hackathonsDirty = false
+async function flushAsync() {
+  if (_projectsDirty && _projects.size > 0) {
+    _projectsDirty = false
+    const rows = Array.from(_projects.entries()).map(([id, data]) => ({ id, data }))
+    for (let i = 0; i < rows.length; i += 500) {
+      await supabase.from('projects').upsert(rows.slice(i, i + 500))
+    }
+  }
+  if (_hackathonsDirty && _hackathons.size > 0) {
+    _hackathonsDirty = false
+    const rows = Array.from(_hackathons.entries()).map(([id, data]) => ({ id, data }))
+    await supabase.from('hackathons').upsert(rows)
+  }
 }
 
-// ─── Hackathons ───────────────────────────────────────────────────────────────
+// ─── Public write API ─────────────────────────────────────────────────────────
 
-export function initDb() {
-  ensureDir()
-}
-
-export function clearData() {
-  ensureDir()
-  // Backup existing data before wiping (prevents accidental loss)
-  try {
-    if (fs.existsSync(PROJECTS_FILE) && fs.statSync(PROJECTS_FILE).size > 10) {
-      fs.copyFileSync(PROJECTS_FILE, PROJECTS_FILE + '.bak')
-    }
-    if (fs.existsSync(HACKATHONS_FILE) && fs.statSync(HACKATHONS_FILE).size > 10) {
-      fs.copyFileSync(HACKATHONS_FILE, HACKATHONS_FILE + '.bak')
-    }
-  } catch {}
+export async function clearData() {
   _projects = new Map()
   _hackathons = new Map()
+  _loaded = true
   _projectsDirty = false
   _hackathonsDirty = false
-  fs.writeFileSync(PROJECTS_FILE, '[]', 'utf-8')
-  fs.writeFileSync(HACKATHONS_FILE, '[]', 'utf-8')
+  await Promise.all([
+    supabase.from('projects').delete().neq('id', ''),
+    supabase.from('hackathons').delete().neq('id', ''),
+  ])
 }
 
 export function upsertHackathon(h: Hackathon) {
-  const map = getHackathonsMap()
-  map.set(h.id, h)
+  _hackathons.set(h.id, h)
   _hackathonsDirty = true
   scheduleDiskFlush()
 }
 
-export function getHackathons(): Hackathon[] {
-  return Array.from(getHackathonsMap().values())
+export function getProjectsMap(): Map<string, Project> {
+  return _projects
 }
 
-// ─── Projects ─────────────────────────────────────────────────────────────────
-
 export function upsertProjectsBatch(projects: Project[]) {
-  const map = getProjectsMap()
-  for (const p of projects) map.set(p.id, p)
+  for (const p of projects) _projects.set(p.id, p)
   _projectsDirty = true
   scheduleDiskFlush()
 }
 
 export function flushToDisk() {
-  flushSync()
+  void flushAsync()
 }
 
-// ─── Query ────────────────────────────────────────────────────────────────────
+// ─── Hackathons ───────────────────────────────────────────────────────────────
+
+export async function getHackathons(): Promise<Hackathon[]> {
+  await ensureDbLoaded()
+  return Array.from(_hackathons.values())
+}
+
+// ─── Query helpers ────────────────────────────────────────────────────────────
 
 function resolveProjectYear(p: Project, hackathonMap: Map<string, number>): number {
   if (p.year && p.year > 2000) return p.year
@@ -153,7 +122,7 @@ function resolveProjectYear(p: Project, hackathonMap: Map<string, number>): numb
 
 function buildHackathonYearMap(): Map<string, number> {
   const map = new Map<string, number>()
-  for (const h of Array.from(getHackathonsMap().values())) {
+  for (const h of Array.from(_hackathons.values())) {
     const yr = h.startDate ? new Date(h.startDate).getFullYear() : 0
     if (yr > 2000) {
       if (h.slug) map.set(h.slug, yr)
@@ -163,17 +132,18 @@ function buildHackathonYearMap(): Map<string, number> {
   return map
 }
 
-export function getYears(): number[] {
+export async function getYears(): Promise<number[]> {
+  await ensureDbLoaded()
   const hackathonMap = buildHackathonYearMap()
   const years = new Set<number>()
-  for (const p of Array.from(getProjectsMap().values())) {
+  for (const p of Array.from(_projects.values())) {
     const yr = resolveProjectYear(p, hackathonMap)
     if (yr > 2000) years.add(yr)
   }
   return Array.from(years).sort((a, b) => b - a)
 }
 
-export function getProjects(filters: {
+export async function getProjects(filters: {
   search?: string
   hackathon?: string
   techStack?: string[]
@@ -183,6 +153,8 @@ export function getProjects(filters: {
   page?: number
   pageSize?: number
 }) {
+  await ensureDbLoaded()
+
   const {
     search = '',
     hackathon = '',
@@ -195,7 +167,7 @@ export function getProjects(filters: {
   } = filters
 
   const hackathonMap = buildHackathonYearMap()
-  let list = Array.from(getProjectsMap().values())
+  let list = Array.from(_projects.values())
 
   if (search) {
     const q = search.toLowerCase()
@@ -234,8 +206,9 @@ export function getProjects(filters: {
   return { total, projects }
 }
 
-export function getStats() {
-  const projects = Array.from(getProjectsMap().values())
+export async function getStats() {
+  await ensureDbLoaded()
+  const projects = Array.from(_projects.values())
 
   const totalProjects = projects.length
   const totalWinners = projects.filter(p => p.isWinner).length
@@ -258,10 +231,5 @@ export function getStats() {
 }
 
 export function logScrape(phase: string, message: string) {
-  try {
-    ensureDir()
-    const logFile = path.join(DATA_DIR, 'scrape.log')
-    const line = `[${new Date().toISOString()}] [${phase}] ${message}\n`
-    fs.appendFileSync(logFile, line, 'utf-8')
-  } catch {}
+  console.log(`[${new Date().toISOString()}] [${phase}] ${message}`)
 }

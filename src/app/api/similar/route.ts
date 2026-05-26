@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Stats
-    return NextResponse.json(getEmbeddingStats())
+    return NextResponse.json(await getEmbeddingStats())
   } catch (err) {
     const msg = String(err)
     if (msg.includes('no_api_key')) {

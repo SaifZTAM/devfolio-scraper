@@ -5,7 +5,7 @@
  */
 import fs from 'fs'
 import path from 'path'
-import { getProjectsMap } from './db'
+import { getProjectsMap, ensureDbLoaded } from './db'
 import type { Project } from './types'
 
 const EMBEDDINGS_FILE = path.join(process.cwd(), 'data', 'embeddings.json')
@@ -106,7 +106,8 @@ async function embed(text: string): Promise<number[] | null> {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export function getEmbeddingStats() {
+export async function getEmbeddingStats() {
+  await ensureDbLoaded()
   const cache = loadCache()
   const projects = getProjectsMap()
   return {
@@ -120,6 +121,7 @@ export async function buildEmbeddings(onProgress?: (done: number, total: number)
   const hasKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY
   if (!hasKey) throw new Error('no_api_key')
 
+  await ensureDbLoaded()
   const projects = Array.from(getProjectsMap().values())
   const cache = loadCache()
 
@@ -153,6 +155,7 @@ export async function findSimilarToText(query: string, k = 12): Promise<Array<{ 
   const queryVec = await embed(query)
   if (!queryVec) return []
 
+  await ensureDbLoaded()
   const cache = loadCache()
   const projects = getProjectsMap()
 
@@ -167,6 +170,7 @@ export async function findSimilarToText(query: string, k = 12): Promise<Array<{ 
 }
 
 export async function findSimilarToProject(projectId: string, k = 12): Promise<Array<{ project: Project; score: number }>> {
+  await ensureDbLoaded()
   const cache = loadCache()
   const queryVec = cache.get(projectId)
 
