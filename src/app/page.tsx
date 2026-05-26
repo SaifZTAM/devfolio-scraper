@@ -55,8 +55,13 @@ export default function Home() {
   const [isScraping, setIsScraping] = useState(false)
   const gridRef = useRef<HTMLDivElement>(null)
   const filtersRef = useRef<ProjectFilters>(DEFAULT_FILTERS)
+  const fetchAbortRef = useRef<AbortController | null>(null)
 
   const fetchProjects = useCallback(async (f: ProjectFilters) => {
+    fetchAbortRef.current?.abort()
+    const controller = new AbortController()
+    fetchAbortRef.current = controller
+
     setLoading(true)
     try {
       const params = new URLSearchParams({
@@ -69,13 +74,15 @@ export default function Home() {
         page: String(f.page),
         pageSize: String(f.pageSize),
       })
-      const r = await fetch(`/api/projects?${params}`)
+      const r = await fetch(`/api/projects?${params}`, { signal: controller.signal })
       if (r.ok) {
         const data = await r.json()
         setProjects(data.projects || [])
         setTotal(data.total || 0)
       }
-    } catch {}
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return
+    }
     setLoading(false)
   }, [])
 
@@ -97,9 +104,6 @@ export default function Home() {
   }, [])
 
   useEffect(() => { fetchMeta(); fetchProjects(DEFAULT_FILTERS) }, [fetchMeta, fetchProjects])
-
-  // Keep filtersRef in sync so scrape-poll uses latest filters
-  useEffect(() => { filtersRef.current = filters }, [filters])
 
   // Real-time polling during active scrape
   useEffect(() => {
@@ -149,6 +153,7 @@ export default function Home() {
 
   const handleFilterChange = (partial: Partial<ProjectFilters>) => {
     const next = { ...filters, ...partial }
+    filtersRef.current = next
     setFilters(next)
     fetchProjects(next)
     if (!partial.page || partial.page === 1) {
