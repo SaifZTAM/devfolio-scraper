@@ -2,13 +2,19 @@
  * Supabase-backed store — projects and hackathons persisted in PostgreSQL.
  * In-memory Maps as primary write buffer; async Supabase upserts for persistence.
  */
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import type { Project, Hackathon } from './types'
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+let _supabase: SupabaseClient | null = null
+function getSupabase(): SupabaseClient {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+  }
+  return _supabase
+}
 
 // ─── In-memory caches ─────────────────────────────────────────────────────────
 let _projects: Map<string, Project> = new Map()
@@ -21,8 +27,8 @@ let _writeTimer: ReturnType<typeof setTimeout> | null = null
 
 async function loadFromDb() {
   const [{ data: projects }, { data: hackathons }] = await Promise.all([
-    supabase.from('projects').select('id, data'),
-    supabase.from('hackathons').select('id, data'),
+    getSupabase().from('projects').select('id, data'),
+    getSupabase().from('hackathons').select('id, data'),
   ])
   _projects = new Map((projects || []).map((r: { id: string; data: Project }) => [r.id, r.data]))
   _hackathons = new Map((hackathons || []).map((r: { id: string; data: Hackathon }) => [r.id, r.data]))
@@ -57,13 +63,13 @@ async function flushAsync() {
     _projectsDirty = false
     const rows = Array.from(_projects.entries()).map(([id, data]) => ({ id, data }))
     for (let i = 0; i < rows.length; i += 500) {
-      await supabase.from('projects').upsert(rows.slice(i, i + 500))
+      await getSupabase().from('projects').upsert(rows.slice(i, i + 500))
     }
   }
   if (_hackathonsDirty && _hackathons.size > 0) {
     _hackathonsDirty = false
     const rows = Array.from(_hackathons.entries()).map(([id, data]) => ({ id, data }))
-    await supabase.from('hackathons').upsert(rows)
+    await getSupabase().from('hackathons').upsert(rows)
   }
 }
 
@@ -76,8 +82,8 @@ export async function clearData() {
   _projectsDirty = false
   _hackathonsDirty = false
   await Promise.all([
-    supabase.from('projects').delete().neq('id', ''),
-    supabase.from('hackathons').delete().neq('id', ''),
+    getSupabase().from('projects').delete().neq('id', ''),
+    getSupabase().from('hackathons').delete().neq('id', ''),
   ])
 }
 
